@@ -11,7 +11,7 @@ class TextExpert(nn.Module):
         self.encoder = nn.Sequential(
             nn.Linear(embedding_size, embedding_size // 2),
             nn.ReLU(),
-            nn.Linear(embedding_size // 2, hidden_size * 2)
+            nn.Linear(embedding_size // 2, hidden_size)
         )
     
     def encode(self, x_seq, mask):
@@ -22,13 +22,13 @@ class TextExpert(nn.Module):
 
         return out
 
-        # self.encoder = nn.GRU(
-        #     input_size=embedding_size,
-        #     hidden_size=hidden_size,
-        #     num_layers=1,
-        #     batch_first=True,
-        #     bidirectional=True
-        # )
+    #     self.encoder = nn.GRU(
+    #         input_size=embedding_size,
+    #         hidden_size=hidden_size,
+    #         num_layers=1,
+    #         batch_first=True,
+    #         bidirectional=True
+    #     )
 
     # def encode(self, x_seq, mask):
 
@@ -47,11 +47,9 @@ class TextExpert(nn.Module):
     #         packed_out,
     #         batch_first=True,
     #         total_length=x_seq.size(1)
-    #     )   # [B, T, 2H]
+    #     ) 
 
     #     return out
-
-
 
 class ImageExpert(nn.Module):
 
@@ -61,7 +59,7 @@ class ImageExpert(nn.Module):
         self.encoder = nn.Sequential(
             nn.Linear(embedding_img, embedding_img // 2),
             nn.ReLU(),
-            nn.Linear(embedding_img // 2, hidden_size * 2)
+            nn.Linear(embedding_img // 2, hidden_size)
         )
 
     def encode(self, img_seq, mask):

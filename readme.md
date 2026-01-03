@@ -1,6 +1,6 @@
 # SybilFinder
 
-This repository contains the implementation of **"SybilFinder: Few-Shot Identity Linkage in Anonymous Darknet Markets for Sybil Detection"**  
+This repository contains the implementation of model SybilFinder.
 
 
 ## Requirements

@@ -1,11 +1,10 @@
 import os
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
 from collections import defaultdict
 from sklearn.metrics import average_precision_score
 from sklearn.cluster import SpectralClustering
-from sklearn.metrics import normalized_mutual_info_score, adjusted_rand_score
+from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
 from sklearn.preprocessing import LabelEncoder
 from utils.metrics import evaluate_kshot, evaluate_retrieval, evaluate_clustering
 
@@ -16,7 +15,7 @@ from utils.metrics import evaluate_metrics
 batch_size = 64
 data_dir = "./data/test/"
 eval_dir = "./data/eval/"
-model_path = "./checkpoints/model.pt"
+model_path = "./models/model.pt"
 log_dir = "./log/"
 os.makedirs(log_dir, exist_ok=True)
 
@@ -53,24 +52,15 @@ def evaluate(model=None, loader=None):
     return pr_auc
 
 
-def build_text_seq(text_data, indices, max_len=5):
+def build_seq(text_data, indices, max_len=5):
     seq = [text_data[i] for i in indices[:max_len]]
     while len(seq) < max_len:
         seq.append(np.zeros_like(seq[0]))
     return np.stack(seq)
 
-
-def build_img_seq(img_data, indices, max_len=5):
-    seq = [img_data[i] for i in indices[:max_len]]
-    while len(seq) < max_len:
-        seq.append(np.zeros_like(seq[0]))
-    return np.stack(seq)
-
-
-def avg_gate_seq(gate_data, indices):
-    gates = np.stack([gate_data[i] for i in indices])
-    return gates.mean(axis=0)
-
+def avg_gate(gate_data, indices):
+    gates = np.stack([gate_data[i] for i in indices]) 
+    return gates.mean(axis=0)                           
 
 @torch.no_grad()
 def run_nway_kshot(
@@ -78,72 +68,110 @@ def run_nway_kshot(
     text_data, img_data,
     text_gate, img_gate,
     labels,
-    N=5, K=1, Q=1,
+    N, K, Q,
     num_episodes=999,
     top_ks=[1]
 ):
-
     episode_results = []
+
     label_to_indices = defaultdict(list)
     for idx, label in enumerate(labels):
         label_to_indices[label].append(idx)
 
-    valid_labels = [
-        label for label, idxs in label_to_indices.items()
+    support_candidates = {
+        l: idxs for l, idxs in label_to_indices.items()
+        if len(idxs) >= K
+    }
+
+    query_candidates = {
+        l: idxs for l, idxs in label_to_indices.items()
         if len(idxs) >= (K + Q)
-    ]
+    }
+
+    support_labels = list(support_candidates.keys())
+    query_labels = list(query_candidates.keys())
+
+    assert len(query_labels) >= 1
+    assert len(support_labels) >= N
 
     for _ in range(num_episodes):
-        selected_labels = np.random.choice(valid_labels, N, replace=False)
-        query_label = np.random.choice(selected_labels)
-        query_idx = np.random.choice(label_to_indices[query_label])
 
-        used_indices = {query_idx}
+        query_label = np.random.choice(query_labels)
+        other_support_labels = np.random.choice(
+            [l for l in support_labels if l != query_label],
+            N - 1,
+            replace=False
+        )
+
+        episode_labels = [query_label] + list(other_support_labels)
+
         support_indices = []
 
-        for l in selected_labels:
-            candidates = [i for i in label_to_indices[l] if i not in used_indices]
-            chosen = np.random.choice(candidates, K, replace=False)
-            used_indices.update(chosen)
+        query_support_indices = None
+
+        for l in episode_labels:
+            idxs = label_to_indices[l]
+
+            if len(idxs) == K:
+                chosen = idxs
+            else:
+                start = np.random.randint(0, len(idxs) - K + 1)
+                chosen = idxs[start:start + K]
+
             support_indices.append(chosen)
 
+            if l == query_label:
+                query_support_indices = set(chosen)
+
+        all_query_idxs = label_to_indices[query_label]
+        remaining = [i for i in all_query_idxs if i not in query_support_indices]
+
+        query_indices = []
+
+        if len(remaining) >= Q:
+            if len(remaining) == Q:
+                query_indices = remaining
+            else:
+                start = np.random.randint(0, len(remaining) - Q + 1)
+                query_indices = remaining[start:start + Q]
+
         A_x = torch.tensor(
-            np.stack([build_text_seq(text_data, idxs) for idxs in support_indices]),
+            np.stack([build_seq(text_data, idxs) for idxs in support_indices]),
             dtype=torch.float32
         ).cuda()
 
         A_img = torch.tensor(
-            np.stack([build_img_seq(img_data, idxs) for idxs in support_indices]),
+            np.stack([build_seq(img_data, idxs) for idxs in support_indices]),
             dtype=torch.float32
         ).cuda()
 
         gate_A_x = torch.tensor(
-            np.stack([avg_gate_seq(text_gate, idxs) for idxs in support_indices]),
+            np.stack([avg_gate(text_gate, idxs) for idxs in support_indices]),
             dtype=torch.float32
         ).cuda()
 
         gate_A_img = torch.tensor(
-            np.stack([avg_gate_seq(img_gate, idxs) for idxs in support_indices]),
+            np.stack([avg_gate(img_gate, idxs) for idxs in support_indices]),
             dtype=torch.float32
         ).cuda()
 
         B_x = torch.tensor(
-            np.stack([build_text_seq(text_data, [query_idx])] * N),
+            np.stack([build_seq(text_data, query_indices)] * N),
             dtype=torch.float32
         ).cuda()
 
         B_img = torch.tensor(
-            np.stack([build_img_seq(img_data, [query_idx])] * N),
+            np.stack([build_seq(img_data, query_indices)] * N),
             dtype=torch.float32
         ).cuda()
 
         gate_B_x = torch.tensor(
-            np.stack([text_gate[query_idx]] * N),
+            np.stack([avg_gate(text_gate, query_indices)] * N),
             dtype=torch.float32
         ).cuda()
 
         gate_B_img = torch.tensor(
-            np.stack([img_gate[query_idx]] * N),
+            np.stack([avg_gate(img_gate, query_indices)] * N),
             dtype=torch.float32
         ).cuda()
 
@@ -156,7 +184,7 @@ def run_nway_kshot(
 
         scores = out["similarity"].cpu().numpy()
 
-        label_binary = [1 if l == query_label else 0 for l in selected_labels]
+        label_binary = [1 if l == query_label else 0 for l in episode_labels]
 
         res = evaluate_kshot(scores, label_binary, top_ks)
         episode_results.append(res)
@@ -165,7 +193,7 @@ def run_nway_kshot(
 
     for k in top_ks:
         print(
-            f"[{N}-way {K}-shot Q={Q}] "
+            f"[{N}-way {K}-shot {Q}-query] "
             f"Acc@{k}: {agg[k]['acc']:.4f} | "
             f"Precision@{k}: {agg[k]['precision']:.4f} | "
             f"Recall@{k}: {agg[k]['recall']:.4f} | "
@@ -253,12 +281,13 @@ def run_full_retrieval(
 
     for k in top_ks:
         print(
+            f"[retrieval] "
             f"Recall@{k}: {agg[k]['recall']:.4f} | "
             f"Precision@{k}: {agg[k]['precision']:.4f} | "
-            f"Accuracy@{k}: {agg[k]['accuracy']:.4f}"
+            f"Accuracy@{k}: {agg[k]['accuracy']:.4f} | "
         )
 
-    print(f"MRR: {mrr:.4f} | MAP: {mapv:.4f}")
+    print(f"[retrieval] "f"MRR: {mrr:.4f} | MAP: {mapv:.4f}")
 
 def aggregate_retrieval_results(results, top_ks=(1,)):
     valid = len(results)
@@ -335,20 +364,18 @@ def run_clustering(
     y_true = LabelEncoder().fit_transform(labels)
     y_pred = LabelEncoder().fit_transform(pred_labels)
 
-    nmi = normalized_mutual_info_score(y_true, y_pred)
     ari = adjusted_rand_score(y_true, y_pred)
+    ami = adjusted_mutual_info_score(y_true, y_pred)
     acc = evaluate_clustering(y_true, y_pred)
 
-    print(f"[Clustering] NMI={nmi:.4f} | ARI={ari:.4f} | ACC={acc:.4f}")
-    return nmi, ari, acc
+    print(f"[Clustering] ARI={ari:.4f} | AMI={ami:.4f} | ACC={acc:.4f}")
+    return ami, ari, acc
 
 def ensure_sequence(x):
-    if x.ndim == 2:
-        return x[:, None, :]
-    elif x.ndim == 3:
+    if x.ndim == 3:
+        return x[:, None, :, :]
+    elif x.ndim == 4:
         return x
-    else:
-        raise ValueError(f"Unsupported input shape: {x.shape}")
 
 if __name__ == "__main__":
     evaluate()

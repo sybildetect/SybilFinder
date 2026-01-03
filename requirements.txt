@@ -38,7 +38,7 @@ smart-open==7.1.0
 threadpoolctl==3.5.0
 tokenizers==0.10.3
 tqdm==4.67.1
-transformers==4.6.1
+transformers==4.36.1
 tzdata==2025.2
 umap-learn==0.5.7
 urllib3==2.2.3
