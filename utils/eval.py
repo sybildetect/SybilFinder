@@ -2,20 +2,11 @@ import os
 import torch
 import numpy as np
 from collections import defaultdict
-from sklearn.metrics import average_precision_score
 from sklearn.cluster import SpectralClustering
 from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
 from sklearn.preprocessing import LabelEncoder
-from utils.metrics import evaluate_kshot, evaluate_retrieval, evaluate_clustering
+from utils.metrics import evaluate_metrics, evaluate_kshot, evaluate_retrieval, evaluate_clustering
 
-
-from models.model import SiameseNetwork
-from utils.metrics import evaluate_metrics
-
-batch_size = 64
-data_dir = "./data/test/"
-eval_dir = "./data/eval/"
-model_path = "./models/model.pt"
 log_dir = "./log/"
 os.makedirs(log_dir, exist_ok=True)
 
@@ -63,14 +54,14 @@ def avg_gate(gate_data, indices):
     return gates.mean(axis=0)                           
 
 @torch.no_grad()
-def run_nway_kshot(
+def nway_kshot(
     model,
     text_data, img_data,
     text_gate, img_gate,
     labels,
     N, K, Q,
     num_episodes=999,
-    top_ks=[1]
+    top_ks=[]
 ):
     episode_results = []
 
@@ -217,10 +208,10 @@ def aggregate_kshot_results(results_list, top_ks=(1,)):
 
 
 @torch.no_grad()
-def run_full_retrieval(
+def full_retrieval(
     model, text_data, img_data,
     text_gate, img_gate, labels,
-    top_ks=[1]
+    top_ks=[]
 ):
     num_samples = len(labels)
     all_sim = np.zeros((num_samples, num_samples))
@@ -308,7 +299,7 @@ def aggregate_retrieval_results(results, top_ks=(1,)):
     return mrr, mapv, agg
 
 @torch.no_grad()
-def run_clustering(
+def clustering(
     model,
     text_data, img_data,
     text_gate, img_gate,

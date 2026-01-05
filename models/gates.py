@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 class ReverseBiasGate(nn.Module):
 
-    def __init__(self, d_model, num_experts, init_tau = 1.0):
+    def __init__(self, d_model, num_experts, init_tau = 2.0):
         super().__init__()
         self.num_layers = 4 
         self.linears = nn.ModuleList([
@@ -13,7 +13,8 @@ class ReverseBiasGate(nn.Module):
         ])
         self.act = nn.GELU()
         self.gamma = nn.Parameter(torch.ones(1, d_model))
-        self.fc = nn.Linear(d_model * 2, num_experts, bias=False)
+        self.fc_layer = nn.Linear(d_model, num_experts, bias=False)
+        self.fc_res = nn.Linear(d_model, num_experts, bias=False)
         self.c_sty_in  = nn.Parameter(torch.zeros(num_experts))
         self.c_sem_in  = nn.Parameter(torch.zeros(num_experts))
         self.c_sty_out = nn.Parameter(torch.zeros(num_experts))
@@ -29,19 +30,19 @@ class ReverseBiasGate(nn.Module):
             zi = self.act(self.linears[i](H_layer[:, i, :]))  # [B, D']
             z_list.append(zi)
         Z_layer = torch.stack(z_list, dim=1).sum(dim=1)
-        Z = torch.cat([Z_layer, Z_res], dim=1)  
 
-        G = self.fc(Z)             # [B, L]
+        G = self.fc_layer(Z_layer)
+        B = self.fc_res(Z_res)
 
-        g_sty_in = ( G + self.c_sty_in ) / self.tau
-        g_sem_in = ( -G + self.c_sem_in ) / self.tau
+        g_sty_in = (B + G) / self.num_layers + self.c_sty_in
+        g_sem_in = (B - G) / self.num_layers + self.c_sem_in
         g_in = torch.stack([g_sty_in, g_sem_in], dim=-1)
         w_in = F.softmax(g_in, dim=-1)
         alpha_in = w_in[..., 0]
         beta_in  = w_in[..., 1]
 
-        g_sty_out = ( G + self.c_sty_out ) / self.tau
-        g_sem_out = ( -G + self.c_sem_out ) / self.tau
+        g_sty_out = (B + G) / self.tau + self.c_sty_out
+        g_sem_out = (B - G) / self.tau + self.c_sem_out
         alpha_out = F.softmax(g_sty_out, dim=-1)
         beta_out  = F.softmax(g_sem_out, dim=-1)
 
