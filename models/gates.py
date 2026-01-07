@@ -26,7 +26,7 @@ class ReverseBiasGate(nn.Module):
         H_res = H[:, -1, :]
         Z_res = H_res * self.gamma
         z_list = []
-        for i in range(H_layer.size(1)):
+        for i in range(self.num_layers):
             zi = self.act(self.linears[i](H_layer[:, i, :]))  # [B, D']
             z_list.append(zi)
         Z_layer = torch.stack(z_list, dim=1).sum(dim=1)

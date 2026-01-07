@@ -14,7 +14,7 @@ class TextExpert(nn.Module):
             nn.Linear(embedding_size // 2, hidden_size)
         )
     
-    def encode(self, x_seq, mask):
+    def forward(self, x_seq, mask):
 
         out = self.encoder(x_seq)   # [B, T_img, 2H]
 
@@ -30,7 +30,7 @@ class TextExpert(nn.Module):
     #         bidirectional=True
     #     )
 
-    # def encode(self, x_seq, mask):
+    # def forward(self, x_seq, mask):
 
     #     lengths = mask.sum(dim=1).long().cpu()
 
@@ -62,7 +62,7 @@ class ImageExpert(nn.Module):
             nn.Linear(embedding_img // 2, hidden_size)
         )
 
-    def encode(self, img_seq, mask):
+    def forward(self, img_seq, mask):
 
         feat = self.encoder(img_seq)
 
